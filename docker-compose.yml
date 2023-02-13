@@ -7,7 +7,7 @@ services:
     shm_size: 256mb
     env_file: .postgres.env
     networks:
-      - mastodon_internal
+      - mastodon_intra
     hostname: db
     healthcheck:
       test: ['CMD', 'pg_isready', '-U', 'mastodon'] # Replace 'mastodon' with POSTGRES_USER value
@@ -18,7 +18,7 @@ services:
     restart: always
     image: redis:7-alpine
     networks:
-      - mastodon_internal
+      - mastodon_intra
     hostname: redis
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
@@ -40,7 +40,7 @@ services:
   #     - "discovery.type=single-node"
   #     - "thread_pool.write.queue_size=1000"
   #   networks:
-  #      - mastodon_internal
+  #      - mastodon_intra
   #   healthcheck:
   #      test: ["CMD-SHELL", "curl --silent --fail localhost:9200/_cluster/health || exit 1"]
   #   volumes:
@@ -65,7 +65,7 @@ services:
      - 'RAILS_ENV=production'
     command: bash -c "rm -f /mastodon/tmp/pids/server.pid; bundle exec rails s -p 3000"
     networks:
-      - mastodon_internal
+      - mastodon_intra
       - reverse_proxy
     hostname: web # Point cloudflared to http://<hostname>:3000 without the <>
     healthcheck:
@@ -88,7 +88,7 @@ services:
      - 'RAILS_ENV=production'
     command: node ./streaming
     networks:
-      - mastodon_internal
+      - mastodon_intra
       - reverse_proxy
     hostname: streaming # Point cloudflared to http://<hostname>:4000 without the <>
     healthcheck:
@@ -110,7 +110,7 @@ services:
       - db
       - redis
     networks:
-      - mastodon_internal
+      - mastodon_intra
     hostname: sidekiq
     volumes:
       - ./volumes/public/system:/mastodon/public/system
@@ -123,14 +123,14 @@ services:
   # tor:
   #   image: sirboops/tor
   #   networks:
-  #      - mastodon_internal
+  #      - mastodon_intra
   #
   # privoxy:
   #   image: sirboops/privoxy
   #   volumes:
   #     - ./priv-config:/opt/config
   #   networks:
-  #     - mastodon_internal
+  #     - mastodon_intra
 
   cloudflared:
     restart: unless-stopped
@@ -144,6 +144,5 @@ services:
     command: tunnel run
 
 networks:
-  mastodon_internal: # Internal network enabling Mastodon services to talk to each other
-    internal: true 
+  mastodon_intra: # Intra network enabling Mastodon services to talk to each other
   reverse_proxy: # For letting Cloudflared talk to the Web and Streaming instances of Mastodon

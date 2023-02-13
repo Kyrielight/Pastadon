@@ -62,3 +62,16 @@ Note that role names are case-sensitive.
 1. Adding a cron job to automatically clean cache.
 2. Add optional logging configs to limit amount of logs stored.
 3. Support ElasticSearch in configs.
+
+## Known Bugs
+
+### 500 on search
+
+If the logs show an error like this:
+```
+Errno::EACCES (Permission denied @ dir_s_mkdir - /opt/mastodon/public/system/cache):
+```
+
+Run this command (shut down the running Mastodon instance first):
+
+`docker compose run --rm --user=root -e RAILS_ENV=production web chown -R 991:991 /opt/mastodon/public`
