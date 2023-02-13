@@ -1,0 +1,149 @@
+version: '3'
+services:
+
+  db:
+    restart: always
+    image: postgres:14-alpine
+    shm_size: 256mb
+    env_file: .postgres.env
+    networks:
+      - mastodon_internal
+    hostname: db
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'mastodon'] # Replace 'mastodon' with POSTGRES_USER value
+    volumes:
+      - ./volumes/postgres14:/var/lib/postgresql/data
+
+  redis:
+    restart: always
+    image: redis:7-alpine
+    networks:
+      - mastodon_internal
+    hostname: redis
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+    volumes:
+      - ./volumes/redis:/data
+
+  # es:
+  #   restart: always
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:7.17.4
+  #   environment:
+  #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m -Des.enforce.bootstrap.checks=true"
+  #     - "xpack.license.self_generated.type=basic"
+  #     - "xpack.security.enabled=false"
+  #     - "xpack.watcher.enabled=false"
+  #     - "xpack.graph.enabled=false"
+  #     - "xpack.ml.enabled=false"
+  #     - "bootstrap.memory_lock=true"
+  #     - "cluster.name=es-mastodon"
+  #     - "discovery.type=single-node"
+  #     - "thread_pool.write.queue_size=1000"
+  #   networks:
+  #      - mastodon_internal
+  #   healthcheck:
+  #      test: ["CMD-SHELL", "curl --silent --fail localhost:9200/_cluster/health || exit 1"]
+  #   volumes:
+  #      - ./volumes/elasticsearch:/usr/share/elasticsearch/data
+  #   ulimits:
+  #     memlock:
+  #       soft: -1
+  #       hard: -1
+  #     nofile:
+  #       soft: 65536
+  #       hard: 65536
+  #   ports:
+  #     - '127.0.0.1:9200:9200'
+
+  # Runs on port 3000
+  web:
+    build: .
+    image: tootsuite/mastodon
+    restart: always
+    env_file: .mastodon.env
+    environment:
+     - 'RAILS_ENV=production'
+    command: bash -c "rm -f /mastodon/tmp/pids/server.pid; bundle exec rails s -p 3000"
+    networks:
+      - mastodon_internal
+      - reverse_proxy
+    hostname: web # Point cloudflared to http://<hostname>:3000 without the <>
+    healthcheck:
+      # prettier-ignore
+      test: ['CMD-SHELL', 'wget -q --spider --proxy=off localhost:3000/health || exit 1']
+    depends_on:
+      - db
+      - redis
+      # - es
+    volumes:
+      - ./volumes/public/system:/mastodon/public/system
+
+  # Runs on port 4000
+  streaming:
+    build: .
+    image: tootsuite/mastodon
+    restart: always
+    env_file: .mastodon.env
+    environment:
+     - 'RAILS_ENV=production'
+    command: node ./streaming
+    networks:
+      - mastodon_internal
+      - reverse_proxy
+    hostname: streaming # Point cloudflared to http://<hostname>:4000 without the <>
+    healthcheck:
+      # prettier-ignore
+      test: ['CMD-SHELL', 'wget -q --spider --proxy=off localhost:4000/api/v1/streaming/health || exit 1']
+    depends_on:
+      - db
+      - redis
+
+  sidekiq:
+    build: .
+    image: tootsuite/mastodon
+    restart: always
+    env_file: .mastodon.env
+    environment:
+     - 'RAILS_ENV=production'
+    command: bundle exec sidekiq
+    depends_on:
+      - db
+      - redis
+    networks:
+      - mastodon_internal
+    hostname: sidekiq
+    volumes:
+      - ./volumes/public/system:/mastodon/public/system
+    healthcheck:
+      test: ['CMD-SHELL', "ps aux | grep '[s]idekiq\ 6' || false"]
+
+  ## Uncomment to enable federation with tor instances along with adding the following ENV variables
+  ## http_proxy=http://privoxy:8118
+  ## ALLOW_ACCESS_TO_HIDDEN_SERVICE=true
+  # tor:
+  #   image: sirboops/tor
+  #   networks:
+  #      - mastodon_internal
+  #
+  # privoxy:
+  #   image: sirboops/privoxy
+  #   volumes:
+  #     - ./priv-config:/opt/config
+  #   networks:
+  #     - mastodon_internal
+
+  cloudflared:
+    restart: unless-stopped
+    image: cloudflare/cloudflared:latest
+    env_file: .cloudflared.env
+    networks:
+      - reverse_proxy
+    depends_on:
+      - streaming
+      - web
+    command: tunnel run
+
+networks:
+  mastodon_internal: # Internal network enabling Mastodon services to talk to each other
+    internal: true 
+  reverse_proxy: # For letting Cloudflared talk to the Web and Streaming instances of Mastodon
